@@ -1,5 +1,5 @@
-/*
- *    Copyright 2009-2014 the original author or authors.
+/**
+ *    Copyright 2009-2015 the original author or authors.
  *
  *    Licensed under the Apache License, Version 2.0 (the "License");
  *    you may not use this file except in compliance with the License.
@@ -110,6 +110,7 @@ public class Configuration {
   protected JdbcType jdbcTypeForNull = JdbcType.OTHER;
   protected Set<String> lazyLoadTriggerMethods = new HashSet<String>(Arrays.asList(new String[] { "equals", "clone", "hashCode", "toString" }));
   protected Integer defaultStatementTimeout;
+  protected Integer defaultFetchSize;
   protected ExecutorType defaultExecutorType = ExecutorType.SIMPLE;
   protected AutoMappingBehavior autoMappingBehavior = AutoMappingBehavior.PARTIAL;
 
@@ -360,6 +361,14 @@ public class Configuration {
 
   public void setDefaultStatementTimeout(Integer defaultStatementTimeout) {
     this.defaultStatementTimeout = defaultStatementTimeout;
+  }
+
+  public Integer getDefaultFetchSize() {
+    return defaultFetchSize;
+  }
+
+  public void setDefaultFetchSize(Integer defaultFetchSize) {
+    this.defaultFetchSize = defaultFetchSize;
   }
 
   public boolean isUseColumnLabel() {

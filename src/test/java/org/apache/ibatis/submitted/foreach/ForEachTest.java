@@ -1,5 +1,5 @@
-/*
- *    Copyright 2009-2012 the original author or authors.
+/**
+ *    Copyright 2009-2015 the original author or authors.
  *
  *    Licensed under the Apache License, Version 2.0 (the "License");
  *    you may not use this file except in compliance with the License.
@@ -102,6 +102,23 @@ public class ForEachTest {
       users.add(null);
       int count = mapper.countByBestFriend(users);
       Assert.assertEquals(1, count);
+    } finally {
+      sqlSession.close();
+    }
+  }
+
+  @Test
+  public void nullItemInContext() {
+    SqlSession sqlSession = sqlSessionFactory.openSession();
+    try {
+      Mapper mapper = sqlSession.getMapper(Mapper.class);
+      User user1 = new User();
+      user1.setId(3);
+      List<User> users = new ArrayList<User>();
+      users.add(user1);
+      users.add(null);
+      String name = mapper.selectWithNullItemCheck(users);
+      Assert.assertEquals("User3", name);
     } finally {
       sqlSession.close();
     }

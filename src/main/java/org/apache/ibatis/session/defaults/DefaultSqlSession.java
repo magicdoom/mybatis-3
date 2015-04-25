@@ -1,5 +1,5 @@
-/*
- *    Copyright 2009-2014 the original author or authors.
+/**
+ *    Copyright 2009-2015 the original author or authors.
  *
  *    Licensed under the Apache License, Version 2.0 (the "License");
  *    you may not use this file except in compliance with the License.
@@ -37,6 +37,10 @@ import org.apache.ibatis.session.RowBounds;
 import org.apache.ibatis.session.SqlSession;
 
 /**
+ * 
+ * The default implementation for {@link SqlSession}.
+ * Note that this class is not Thread-Safe.
+ * 
  * @author Clinton Begin
  */
 public class DefaultSqlSession implements SqlSession {
@@ -88,11 +92,11 @@ public class DefaultSqlSession implements SqlSession {
 
   @Override
   public <K, V> Map<K, V> selectMap(String statement, Object parameter, String mapKey, RowBounds rowBounds) {
-    final List<?> list = selectList(statement, parameter, rowBounds);
+    final List<? extends V> list = selectList(statement, parameter, rowBounds);
     final DefaultMapResultHandler<K, V> mapResultHandler = new DefaultMapResultHandler<K, V>(mapKey,
         configuration.getObjectFactory(), configuration.getObjectWrapperFactory());
-    final DefaultResultContext context = new DefaultResultContext();
-    for (Object o : list) {
+    final DefaultResultContext<V> context = new DefaultResultContext<V>();
+    for (V o : list) {
       context.nextResultObject(o);
       mapResultHandler.handleResult(context);
     }

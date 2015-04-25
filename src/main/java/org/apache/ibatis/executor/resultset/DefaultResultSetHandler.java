@@ -1,5 +1,5 @@
-/*
- *    Copyright 2009-2014 the original author or authors.
+/**
+ *    Copyright 2009-2015 the original author or authors.
  *
  *    Licensed under the Apache License, Version 2.0 (the "License");
  *    you may not use this file except in compliance with the License.
@@ -37,6 +37,7 @@ import org.apache.ibatis.executor.loader.ResultLoaderMap;
 import org.apache.ibatis.executor.parameter.ParameterHandler;
 import org.apache.ibatis.executor.result.DefaultResultContext;
 import org.apache.ibatis.executor.result.DefaultResultHandler;
+import org.apache.ibatis.executor.result.ResultMapException;
 import org.apache.ibatis.mapping.BoundSql;
 import org.apache.ibatis.mapping.Discriminator;
 import org.apache.ibatis.mapping.MappedStatement;
@@ -68,7 +69,7 @@ public class DefaultResultSetHandler implements ResultSetHandler {
   private final MappedStatement mappedStatement;
   private final RowBounds rowBounds;
   private final ParameterHandler parameterHandler;
-  private final ResultHandler resultHandler;
+  private final ResultHandler<?> resultHandler;
   private final BoundSql boundSql;
   private final TypeHandlerRegistry typeHandlerRegistry;
   private final ObjectFactory objectFactory;
@@ -87,7 +88,7 @@ public class DefaultResultSetHandler implements ResultSetHandler {
     public ResultMapping propertyMapping;
   }
   
-  public DefaultResultSetHandler(Executor executor, MappedStatement mappedStatement, ParameterHandler parameterHandler, ResultHandler resultHandler, BoundSql boundSql,
+  public DefaultResultSetHandler(Executor executor, MappedStatement mappedStatement, ParameterHandler parameterHandler, ResultHandler<?> resultHandler, BoundSql boundSql,
       RowBounds rowBounds) {
     this.executor = executor;
     this.configuration = mappedStatement.getConfiguration();
@@ -260,7 +261,7 @@ public class DefaultResultSetHandler implements ResultSetHandler {
   // HANDLE ROWS FOR SIMPLE RESULTMAP
   //
 
-  private void handleRowValues(ResultSetWrapper rsw, ResultMap resultMap, ResultHandler resultHandler, RowBounds rowBounds, ResultMapping parentMapping) throws SQLException {
+  private void handleRowValues(ResultSetWrapper rsw, ResultMap resultMap, ResultHandler<?> resultHandler, RowBounds rowBounds, ResultMapping parentMapping) throws SQLException {
     if (resultMap.hasNestedResultMaps()) {
       ensureNoRowBounds();
       checkResultHandler();
@@ -285,9 +286,9 @@ public class DefaultResultSetHandler implements ResultSetHandler {
     }
   } 
 
-  private void handleRowValuesForSimpleResultMap(ResultSetWrapper rsw, ResultMap resultMap, ResultHandler resultHandler, RowBounds rowBounds, ResultMapping parentMapping)
+  private void handleRowValuesForSimpleResultMap(ResultSetWrapper rsw, ResultMap resultMap, ResultHandler<?> resultHandler, RowBounds rowBounds, ResultMapping parentMapping)
       throws SQLException {
-    DefaultResultContext resultContext = new DefaultResultContext();
+    DefaultResultContext<Object> resultContext = new DefaultResultContext<Object>();
     skipRows(rsw.getResultSet(), rowBounds);
     while (shouldProcessMoreRows(resultContext, rowBounds) && rsw.getResultSet().next()) {
       ResultMap discriminatedResultMap = resolveDiscriminatedResultMap(rsw.getResultSet(), resultMap, null);
@@ -296,7 +297,7 @@ public class DefaultResultSetHandler implements ResultSetHandler {
     }
   }
 
-  private void storeObject(ResultHandler resultHandler, DefaultResultContext resultContext, Object rowValue, ResultMapping parentMapping, ResultSet rs) throws SQLException {
+  private void storeObject(ResultHandler<?> resultHandler, DefaultResultContext<Object> resultContext, Object rowValue, ResultMapping parentMapping, ResultSet rs) throws SQLException {
     if (parentMapping != null) {
       linkToParents(rs, parentMapping, rowValue);
     } else {
@@ -304,12 +305,13 @@ public class DefaultResultSetHandler implements ResultSetHandler {
     }
   }
 
-  private void callResultHandler(ResultHandler resultHandler, DefaultResultContext resultContext, Object rowValue) {
+  @SuppressWarnings("unchecked" /* because ResultHandler<?> is always ResultHandler<Object>*/)
+  private void callResultHandler(ResultHandler<?> resultHandler, DefaultResultContext<Object> resultContext, Object rowValue) {
     resultContext.nextResultObject(rowValue);
-    resultHandler.handleResult(resultContext);
+    ((ResultHandler<Object>)resultHandler).handleResult(resultContext);
   }
 
-  private boolean shouldProcessMoreRows(ResultContext context, RowBounds rowBounds) throws SQLException {
+  private boolean shouldProcessMoreRows(ResultContext<?> context, RowBounds rowBounds) throws SQLException {
     return !context.isStopped() && context.getResultCount() < rowBounds.getLimit();
   }
 
@@ -561,21 +563,27 @@ public class DefaultResultSetHandler implements ResultSetHandler {
     throw new ExecutorException("Do not know how to create an instance of " + resultType);
   }
 
-  private Object createParameterizedResultObject(ResultSetWrapper rsw, Class<?> resultType, List<ResultMapping> constructorMappings,
-      List<Class<?>> constructorArgTypes, List<Object> constructorArgs, String columnPrefix) throws SQLException {
+  Object createParameterizedResultObject(ResultSetWrapper rsw, Class<?> resultType, List<ResultMapping> constructorMappings,
+      List<Class<?>> constructorArgTypes, List<Object> constructorArgs, String columnPrefix) {
     boolean foundValues = false;
     for (ResultMapping constructorMapping : constructorMappings) {
       final Class<?> parameterType = constructorMapping.getJavaType();
       final String column = constructorMapping.getColumn();
       final Object value;
-      if (constructorMapping.getNestedQueryId() != null) {
-        value = getNestedQueryConstructorValue(rsw.getResultSet(), constructorMapping, columnPrefix);
-      } else if (constructorMapping.getNestedResultMapId() != null) {
-        final ResultMap resultMap = configuration.getResultMap(constructorMapping.getNestedResultMapId());
-        value = getRowValue(rsw, resultMap);
-      } else {
-        final TypeHandler<?> typeHandler = constructorMapping.getTypeHandler();
-        value = typeHandler.getResult(rsw.getResultSet(), prependPrefix(column, columnPrefix));
+      try {
+        if (constructorMapping.getNestedQueryId() != null) {
+          value = getNestedQueryConstructorValue(rsw.getResultSet(), constructorMapping, columnPrefix);
+        } else if (constructorMapping.getNestedResultMapId() != null) {
+          final ResultMap resultMap = configuration.getResultMap(constructorMapping.getNestedResultMapId());
+          value = getRowValue(rsw, resultMap);
+        } else {
+          final TypeHandler<?> typeHandler = constructorMapping.getTypeHandler();
+          value = typeHandler.getResult(rsw.getResultSet(), prependPrefix(column, columnPrefix));
+        }
+      } catch (ResultMapException e) {
+        throw new ExecutorException("Could not process result for mapping: " + constructorMapping, e);
+      } catch (SQLException e) {
+        throw new ExecutorException("Could not process result for mapping: " + constructorMapping, e);
       }
       constructorArgTypes.add(parameterType);
       constructorArgs.add(value);
@@ -758,8 +766,8 @@ public class DefaultResultSetHandler implements ResultSetHandler {
   // HANDLE NESTED RESULT MAPS
   //
 
-  private void handleRowValuesForNestedResultMap(ResultSetWrapper rsw, ResultMap resultMap, ResultHandler resultHandler, RowBounds rowBounds, ResultMapping parentMapping) throws SQLException {
-    final DefaultResultContext resultContext = new DefaultResultContext();
+  private void handleRowValuesForNestedResultMap(ResultSetWrapper rsw, ResultMap resultMap, ResultHandler<?> resultHandler, RowBounds rowBounds, ResultMapping parentMapping) throws SQLException {
+    final DefaultResultContext<Object> resultContext = new DefaultResultContext<Object>();
     skipRows(rsw.getResultSet(), rowBounds);
     Object rowValue = null;
     while (shouldProcessMoreRows(resultContext, rowBounds) && rsw.getResultSet().next()) {
